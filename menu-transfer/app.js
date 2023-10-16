@@ -16,26 +16,21 @@ function showDialog() {
     
     if (sheetNamePrompt.getSelectedButton() == ui.Button.OK) {
       var sheetName = sheetNamePrompt.getResponseText();
-      var destFolder = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getParents().next();
-      var folder = destFolder.createFolder("TempFolder");
       var fileId = extractFileId(sheetUrl);
       var file = DriveApp.getFileById(fileId);
       var mimeType = file.getMimeType();
 
-      if (mimeType === MimeType.GOOGLE_SHEETS) {
-        var googleSheetsId = file.makeCopy("TempGoogleSheets", folder).getId();
+      if (mimeType === MimeType.MICROSOFT_EXCEL) {
+        var googleSheetsId = convertXLSXtoGoogleSheets(fileId);
         copyDataFromGoogleSheets(googleSheetsId, sheetName);
-      } else if (mimeType === MimeType.MICROSOFT_EXCEL) {
-        var xlsxId = file.makeCopy("TempXLSX", folder).getId();
-        var googleSheetsId = convertXLSXtoGoogleSheets(xlsxId);
-        copyDataFromGoogleSheets(googleSheetsId, sheetName);
-        DriveApp.getFileById(xlsxId).setTrashed(true);
+        addNamesToSheet();
         DriveApp.getFileById(googleSheetsId).setTrashed(true);
-        
+      } else if (mimeType === MimeType.GOOGLE_SHEETS) {
+        copyDataFromGoogleSheets(fileId, sheetName);
+        addNamesToSheet();
       } else {
         ui.alert('Unsupported file format. Please provide a valid XLSX or Google Sheets file.');
       }
-      folder.setTrashed(true);
     } else {
       ui.alert('Sheet name not provided. Please try again.');
     }
@@ -43,6 +38,7 @@ function showDialog() {
     ui.alert('URL not provided. Please try again.');
   }
 }
+
 function extractFileId(url) {
   var fileId = /\/d\/([^/]+)/.exec(url);
   return fileId ? fileId[1] : null;
@@ -58,13 +54,10 @@ function convertXLSXtoGoogleSheets(fileId) {
   var createdFile = Drive.Files.insert(resource, blob);
   return createdFile.id;
 }
-
 function copyDataFromGoogleSheets(sourceSheetId, sourceSheetName) {
   var destSheet = SpreadsheetApp.getActiveSheet();
-  
   var sourceSpreadsheet = SpreadsheetApp.openById(sourceSheetId);
   var sourceSheet = sourceSpreadsheet.getSheetByName(sourceSheetName);
-  
   if (!sourceSheet) {
     Logger.log("Source sheet not found. Make sure the sheet name is correct.");
     return;
@@ -73,6 +66,7 @@ function copyDataFromGoogleSheets(sourceSheetId, sourceSheetName) {
   var sourceData = sourceSheet.getDataRange().getValues();
   var destData = destSheet.getDataRange().getValues();
   var columnIndexMapping = { 
+    0: 19,
     1: 1, 
     3: 5,
     4: 11,
@@ -80,14 +74,13 @@ function copyDataFromGoogleSheets(sourceSheetId, sourceSheetName) {
     9: 3, 
     10: 4,
     11: 7,
+    11: 17,
     13: 8,
     14: 9,
     15: 10,
     16: 12, 
     17: 13, 
     18: 14, 
-    19: 17,
-    23: 18,
   };
 
   var mappedData = [];
@@ -100,7 +93,8 @@ function copyDataFromGoogleSheets(sourceSheetId, sourceSheetName) {
       var destColumnIndex = columnIndexMapping[sourceColumnIndex];
       
       if (destColumnIndex !== undefined) {
-        mappedRow[destColumnIndex] = sourceData[i][j];
+     
+          mappedRow[destColumnIndex] = sourceData[i][j];
       }
     }
     mappedData.push(mappedRow);
@@ -113,4 +107,40 @@ function copyDataFromGoogleSheets(sourceSheetId, sourceSheetName) {
   } else {
     Logger.log("No data found in the source sheet.");
   }
+}
+function addNamesToSheet_test() {
+  var spreadsheet = SpreadsheetApp.getActiveSpreadsheet();
+  var sourceSheet = spreadsheet.getSheetByName('ROMI_acronym_maping');
+  var destSheet = spreadsheet.getSheetByName('Trader_Consolidation');
+  //var ssexported = SpreadsheetApp.openById('');
+  var ssexported = SpreadsheetApp.openById(sheetid);
+  //var exportedSheet = ssexported.getSheetByName('Export');
+  var exportedSheet = ssexported.getSheetByName(exsheetname);
+  var sourceData = sourceSheet.getDataRange().getValues();
+  var exporttedData = exportedSheet.getDataRange().getValues();
+  var destData = destSheet.getDataRange().getValues();
+  var nameToAcronymMapping = createNameToAcronymMapping(sourceData);
+  
+  var nameColumnIndex = 19; 
+  var acronymColumnIndex = 19;
+
+  for (var i = 1; i < destData.length; i++) {
+    var name = destData[i][nameColumnIndex];
+    if (name && !destData[i][acronymColumnIndex] && nameToAcronymMapping[name]) {
+      destData[i][acronymColumnIndex+1] = nameToAcronymMapping[name];
+    }
+  }
+  //destSheet.deleteColumn(nameColumnIndex);
+  
+ destSheet.getRange(1, 1, destData.length, destData[0].length).setValues(destData);
+}
+
+function createNameToAcronymMapping(data) {
+  var mapping = {};
+  for (var i = 1; i < data.length; i++) {
+    var name = data[i][0]; 
+    var acronym = data[i][1]; 
+    mapping[name] = acronym;
+  }
+  return mapping;
 }
